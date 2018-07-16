@@ -1,59 +1,91 @@
 package main
 
 import (
-	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
+	"io/ioutil"
+	"fmt"
+	"strconv"
 )
 
-/*
-dir			=>	prefix = prefix+(isLastDir ? "	└" : "	├")
-hasFiles		=>	prefix = prefix+(isLastDir ? "	└" : "	├")
-*/
-
-func printer(out io.Writer, fileInfo os.FileInfo, printFiles bool, depth int, currentPath string, prefix string, isLast bool) {
-	if fileInfo.IsDir() {
-		// print directory name
-		fmt.Fprintln(out, prefix+"───"+fileInfo.Name())
-		// go through children
-		files, error := ioutil.ReadDir(currentPath + "/" + fileInfo.Name())
-		if error != nil {
-			fmt.Fprintln(out, error)
-		}
-		totalChildren := len(files)
-		newPrefix := prefix
-		for index, file := range files {
-			printer(out, file, printFiles, depth+1, currentPath+"/"+fileInfo.Name(), newPrefix, index == totalChildren)
+func countChildren(printFiles bool, files []os.FileInfo) int {
+	// count children
+	var totalChildren int
+	if printFiles {
+		// count all children
+		totalChildren = len(files)
+	} else {
+		// count only directories
+		for _, file := range files {
 			if file.IsDir() {
-				if index == totalChildren-1 {
-					newPrefix = prefix + "	└"
-				} else {
-					newPrefix = prefix + "	|"
-				}
-			} else {
-				if index == totalChildren-1 {
-					newPrefix = prefix + "	└"
-				} else {
-					newPrefix = prefix + "	|"
-				}
+				totalChildren += 1
 			}
 		}
-		prefix += "	"
-	} else {
-		if printFiles {
-			fmt.Fprintln(out, prefix+"───"+fileInfo.Name())
+	}
+	return totalChildren
+}
+
+func printer(out io.Writer, fileInfo os.FileInfo, printFiles bool, path string, prefix string, isLast bool) {
+	if fileInfo.IsDir() || printFiles {
+
+		size := ""
+		if printFiles && !fileInfo.IsDir() {
+			if fileInfo.Size() > 0 {
+				size = " ("+strconv.FormatInt(fileInfo.Size(), 10)+"b)"
+			} else {
+				size = " (empty)"
+			}
+		}
+
+		if isLast {
+			fmt.Fprintln(out, prefix+"└───"+fileInfo.Name()+size)
+		} else {
+			fmt.Fprintln(out, prefix+"├───"+fileInfo.Name()+size)
+		}
+	}
+
+	if fileInfo.IsDir() {
+		// increase depth
+		if isLast {
+			prefix += "	"
+		} else {
+			prefix += "│	"
+		}
+
+		// get children
+		path += "/" + fileInfo.Name()
+		files, _ := ioutil.ReadDir(path)
+		totalChildren := countChildren(printFiles, files)
+		printedFiles := 0
+		isFileLast := false
+		// recursively print children
+		for _, file := range files {
+			if !file.IsDir() && !printFiles {
+				// don't even call printer if it's a file
+				// and printFiles is false
+				continue
+			}
+			printedFiles += 1
+			isFileLast = printedFiles == totalChildren
+			printer(out, file, printFiles, path, prefix, isFileLast)
 		}
 	}
 }
 
 func dirTree(out io.Writer, path string, printFiles bool) error {
-	files, error := ioutil.ReadDir(path)
-	if error != nil {
-		return fmt.Errorf("Error reading directory", error)
-	}
+	files, _ := ioutil.ReadDir(path)
+	totalChildren := countChildren(printFiles, files)
+	printedFiles := 0
+	isFileLast := false
 	for _, file := range files {
-		printer(out, file, printFiles, 0, path, "|", false)
+		if !file.IsDir() && !printFiles {
+			// don't even call printer if it's a file
+			// and printFiles is false
+			continue
+		}
+		printedFiles += 1
+		isFileLast = printedFiles == totalChildren
+		printer(out, file, printFiles, path, "", isFileLast)
 	}
 	return nil
 }
